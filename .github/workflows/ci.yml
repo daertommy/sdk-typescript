@@ -154,7 +154,9 @@ jobs:
           restore-keys: |
             npm-main-ubuntu-
 
-      - run: npm ci --ignore-scripts --verbose
+      - name: Download dependencies
+        run: |
+          npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose 
 
       - name: Compile code
         run: npm run build -- --ignore @temporalio/core-bridge
@@ -236,7 +238,9 @@ jobs:
           restore-keys: |
             npm-main-${{ runner.os }}-
 
-      - run: npm ci --verbose --ignore-scripts
+      - name: Download dependencies
+        run: |
+          npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose 
 
       - name: Compile code
         run: npm run build -- --ignore @temporalio/core-bridge
@@ -339,7 +343,8 @@ jobs:
 
       # No need to compile anything, we just need the package ./scripts and their dependencies
       - name: Install dependencies without compilation
-        run: npm ci --verbose --ignore-scripts
+        run: |
+          npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose 
         if: ${{ matrix.server != 'cloud' || env.TEMPORAL_CLIENT_CERT != '' }}
 
       - name: Restore Verdaccio repo artifact
@@ -485,7 +490,9 @@ jobs:
           env-vars: ''
           save-if: false
 
-      - run: npm ci --ignore-scripts
+      - name: Download dependencies
+        run: |
+          npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose 
 
       # eslint-import-resolver-typescript requires packages to be built
       - name: Compile all non-rust code
@@ -521,7 +528,9 @@ jobs:
             npm-main-${{ runner.os }}-
 
       # Don't build during install phase since we're going to explicitly build
-      - run: npm ci --ignore-scripts
+      - name: Download dependencies
+        run: |
+          npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose || npm ci --ignore-scripts --verbose 
 
       - run: npm run build -- --ignore @temporalio/core-bridge
 
