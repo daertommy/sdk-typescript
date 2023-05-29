@@ -41,7 +41,7 @@ test.beforeEach(async (t) => {
 });
 
 if (RUN_INTEGRATION_TESTS) {
-  test('Simple local activity works end to end', async (t) => {
+  test.serial('Simple local activity works end to end', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -54,7 +54,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('isLocal is set correctly', async (t) => {
+  test.serial('isLocal is set correctly', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -74,7 +74,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Parallel local activities work end to end', async (t) => {
+  test.serial('Parallel local activities work end to end', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -96,7 +96,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Local activity error is propagated properly to the Workflow', async (t) => {
+  test.serial('Local activity error is propagated properly to the Workflow', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -112,7 +112,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Local activity cancellation is propagated properly to the Workflow', async (t) => {
+  test.serial('Local activity cancellation is propagated properly to the Workflow', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -130,7 +130,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Failing local activity can be cancelled', async (t) => {
+  test.serial('Failing local activity can be cancelled', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -148,7 +148,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Serial local activities (in the same task) work end to end', async (t) => {
+  test.serial('Serial local activities (in the same task) work end to end', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -168,7 +168,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Local activity does not retry if error is in nonRetryableErrorTypes', async (t) => {
+  test.serial('Local activity does not retry if error is in nonRetryableErrorTypes', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
@@ -184,7 +184,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Local activity can retry once', async (t) => {
+  test.serial('Local activity can retry once', async (t) => {
     let attempts = 0;
     const { taskQueue, client } = t.context;
     const worker = await Worker.create({
@@ -214,7 +214,7 @@ if (RUN_INTEGRATION_TESTS) {
     t.true(attempts >= 2);
   });
 
-  test('Local activity backs off with timer', async (t) => {
+  test.serial('Local activity backs off with timer', async (t) => {
     let attempts = 0;
     const { client, taskQueue } = t.context;
     const worker = await Worker.create({
@@ -251,7 +251,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Local activity can be intercepted', async (t) => {
+  test.serial('Local activity can be intercepted', async (t) => {
     const { client, taskQueue } = t.context;
     const worker = await Worker.create({
       taskQueue,
@@ -280,7 +280,7 @@ if (RUN_INTEGRATION_TESTS) {
     });
   });
 
-  test('Worker shutdown while running a local activity completes after completion', async (t) => {
+  test.serial('Worker shutdown while running a local activity completes after completion', async (t) => {
     const { client, taskQueue } = t.context;
     const subj = new Subject<void>();
     const worker = await Worker.create({
@@ -321,7 +321,7 @@ if (RUN_INTEGRATION_TESTS) {
     await p;
   });
 
-  test('Local activity fails if not registered on Worker', async (t) => {
+  test.serial('Local activity fails if not registered on Worker', async (t) => {
     const { client, taskQueue, getWorker } = t.context;
     const worker = await getWorker();
     await worker.runUntil(async () => {
