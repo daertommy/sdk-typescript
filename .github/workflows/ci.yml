@@ -17,7 +17,7 @@ env:
           || startsWith(github.ref, 'refs/heads/releases'))
         && github.event_name != 'pull_request'
     }}
-  NODE_OPTIONS: --max_old_space_size=4096
+  # NODE_OPTIONS: --max_old_space_size=4096
 
 jobs:
   # Compile native bridge code and isolate extension for Windows, Mac and Linux.
