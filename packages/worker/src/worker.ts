@@ -752,8 +752,14 @@ export class Worker {
    */
   shutdown(): void {
     if (this.state !== 'RUNNING') {
-      throw new IllegalStateError('Not running');
+      console.log(`[${new Date()}] $$$$$$ SHUTDOWN ORIGINALLY REQUESTED FROM :`);
+      console.log((this as any).shutdownRequestedFrom);
+      (this as any).shutdownRequestedFrom = Error.captureStackTrace(new Error('Worker shutdown requested'));
+
+      throw new IllegalStateError(`Not running. Current state: ${this.state}`);
     }
+    (this as any).shutdownRequestedFrom = Error.captureStackTrace(new Error('Worker shutdown requested'));
+
     this.state = 'STOPPING';
     this.nativeWorker
       .initiateShutdown()

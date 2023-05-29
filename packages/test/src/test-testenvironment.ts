@@ -105,13 +105,17 @@ test.serial('TestEnvironment sleep can be used to delay activity completion', as
     });
     t.is(winner, expectedWinner);
   };
+  console.log('$$$$ BEFORE RUNUNTIL');
   await worker.runUntil(async () => {
+    console.log(`[${new Date()}] $$$$ IN RUNUNTIL`);
     // TODO: there's an issue with the Java test server where if an activity
     // does not complete before its scheduling workflow, time skipping stays
     // locked.
     // If the order of the below 2 statements is reversed, this test will hang.
     await run('activity');
+    console.log('[${new Date()}] $$$$ AFTER ACTIVITY');
     await run('timer');
+    console.log('[${new Date()}] $$$$ AFTER TIMER');
   });
   t.pass();
 });
