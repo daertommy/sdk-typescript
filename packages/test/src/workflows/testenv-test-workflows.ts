@@ -16,10 +16,14 @@ export async function raceActivityAndTimer(expectedWinner: 'timer' | 'activity')
   const timerShouldWin = expectedWinner === 'timer';
   const timerDuration = timerShouldWin ? 1_000_000 : 1_500_000;
   const activityDuration = timerShouldWin ? 1_500_000 : 1_000_000;
-  return await Promise.race([
-    sleep(timerDuration).then(() => 'timer'),
-    activities.sleep(activityDuration).then(() => 'activity'),
-  ]);
+  const timerPromise = sleep(timerDuration).then(() => 'timer');
+  const activityPromise = activities.sleep(activityDuration).then(() => 'activity');
+  const winner = await Promise.race([timerPromise, activityPromise]);
+
+  // FIXME: Make sure activity has completed before the workflow completes; otherwise, the test server may remain stuck in non-timeskipping mode
+  await activityPromise;
+
+  return winner;
 }
 
 export async function waitOnSignalWithTimeout(): Promise<void> {

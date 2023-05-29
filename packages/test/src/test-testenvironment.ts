@@ -21,7 +21,7 @@ interface Context {
 
 const test = anyTest as TestFn<Context>;
 
-test.beforeEach(async (t) => {
+test.before(async (t) => {
   t.context = {
     testEnv: await TestWorkflowEnvironment.createTimeSkipping(),
     bundle: await bundleWorkflowCode({
@@ -31,7 +31,7 @@ test.beforeEach(async (t) => {
   };
 });
 
-test.afterEach.always(async (t) => {
+test.after.always(async (t) => {
   await t.context.testEnv?.teardown();
 });
 
@@ -79,11 +79,11 @@ test.serial('TestEnvironment can toggle between normal and skipped time', async 
 });
 
 test.serial('TestEnvironment sleep can be used to delay activity completion', async (t) => {
-  // TODO: check why this fails on windows
-  if (process.platform === 'win32') {
-    t.pass();
-    return;
-  }
+  // // TODO: check why this fails on windows
+  // if (process.platform === 'win32') {
+  //   t.pass();
+  //   return;
+  // }
   const { client, nativeConnection, sleep } = t.context.testEnv;
 
   const worker = await Worker.create({
@@ -108,28 +108,24 @@ test.serial('TestEnvironment sleep can be used to delay activity completion', as
   console.log('$$$$ BEFORE RUNUNTIL');
   await worker.runUntil(async () => {
     console.log(`[${new Date()}] $$$$ IN RUNUNTIL`);
-    // TODO: there's an issue with the Java test server where if an activity
-    // does not complete before its scheduling workflow, time skipping stays
-    // locked.
-    // If the order of the below 2 statements is reversed, this test will hang.
-    await run('activity');
-    console.log('[${new Date()}] $$$$ AFTER ACTIVITY');
     await run('timer');
-    console.log('[${new Date()}] $$$$ AFTER TIMER');
+    console.log(`[${new Date()}] $$$$ AFTER TIMER`);
+    await run('activity');
+    console.log(`[${new Date()}] $$$$ AFTER ACTIVITY`);
   });
   t.pass();
 });
 
 test.serial('TestEnvironment sleep can be used to delay sending a signal', async (t) => {
-  // TODO: check why this fails on windows
-  if (process.platform === 'win32') {
-    t.pass();
-    return;
-  }
+  // // TODO: check why this fails on windows
+  // if (process.platform === 'win32') {
+  //   t.pass();
+  //   return;
+  // }
   const { client, nativeConnection, sleep } = t.context.testEnv;
   // TODO: due to the test server issue mentioned in the test avove we need to manually unlock time skipping
   // for the current test to balance out the time skipping lock counter.
-  await (t.context.testEnv.connection as Connection).testService.unlockTimeSkipping({});
+  // await (t.context.testEnv.connection as Connection).testService.unlockTimeSkipping({});
 
   const worker = await Worker.create({
     connection: nativeConnection,

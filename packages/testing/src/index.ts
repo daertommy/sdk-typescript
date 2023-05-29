@@ -11,14 +11,12 @@
 import 'abort-controller/polyfill'; // eslint-disable-line import/no-unassigned-import
 import path from 'node:path';
 import events from 'node:events';
-import { randomUUID } from 'node:crypto';
 import ms from 'ms';
 import * as activity from '@temporalio/activity';
 import {
   AsyncCompletionClient,
   Client,
   ClientOptions,
-  ConnectionOptions,
   WorkflowClient,
   WorkflowClientOptions,
   WorkflowResultOptions,
@@ -242,13 +240,6 @@ export class TestWorkflowEnvironment {
       server: { type: 'time-skipping', ...opts?.server },
       client: opts?.client,
       supportsTimeSkipping: true,
-      connectionOptions: {
-        channelArgs: {
-          // Do not enable keep alive (which we would otherwise enable by default)
-          // as the Time Skipping server does not permit it at the moment.
-          // FIXME: This should be fixed in the Java server instead.
-        },
-      },
     });
   }
 
@@ -284,23 +275,15 @@ export class TestWorkflowEnvironment {
     opts: TestWorkflowEnvironmentOptions & {
       supportsTimeSkipping: boolean;
       namespace?: string;
-      connectionOptions?: ConnectionOptions;
     }
   ): Promise<TestWorkflowEnvironment> {
     const { supportsTimeSkipping, namespace, ...rest } = opts;
     const optsWithDefaults = addDefaults(filterNullAndUndefined(rest));
-    const tracker = randomUUID();
-    console.log(
-      `Starting up ephemeral server with options: ${supportsTimeSkipping ? 'time skipping' : 'cli'} - ${tracker}`
-    );
     const server = await Runtime.instance().createEphemeralServer(optsWithDefaults.server);
-    console.log(
-      `Done starting up ephemeral server with options: ${supportsTimeSkipping ? 'time skipping' : 'cli'} - ${tracker}`
-    );
     const address = getEphemeralServerTarget(server);
 
     const nativeConnection = await NativeConnection.connect({ address });
-    const connection = await Connection.connect({ ...(opts.connectionOptions ?? {}), address });
+    const connection = await Connection.connect({ address });
 
     return new this(optsWithDefaults, supportsTimeSkipping, server, connection, nativeConnection, namespace);
   }
