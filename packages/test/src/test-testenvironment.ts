@@ -21,7 +21,7 @@ interface Context {
 
 const test = anyTest as TestFn<Context>;
 
-test.before(async (t) => {
+test.beforeEach(async (t) => {
   t.context = {
     testEnv: await TestWorkflowEnvironment.createTimeSkipping(),
     bundle: await bundleWorkflowCode({
@@ -31,7 +31,7 @@ test.before(async (t) => {
   };
 });
 
-test.after.always(async (t) => {
+test.afterEach.always(async (t) => {
   await t.context.testEnv?.teardown();
 });
 
