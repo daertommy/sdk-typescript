@@ -1,4 +1,4 @@
-import crypto, { randomUUID } from 'node:crypto';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vm from 'node:vm';
@@ -425,8 +425,6 @@ export class Worker {
   protected readonly tracer: otel.Tracer;
   protected readonly workflowCodecRunner: WorkflowCodecRunner;
 
-  private readonly workerId = randomUUID();
-
   /**
    * Create a new Worker.
    * This method initiates a connection to the server and will throw (asynchronously) on connection failure.
@@ -749,7 +747,7 @@ export class Worker {
   }
 
   protected set state(state: State) {
-    this.log.info('Worker state changed', { state, workerId: this.workerId });
+    this.log.info('Worker state changed', { state });
     this.stateSubject.next(state);
   }
 
