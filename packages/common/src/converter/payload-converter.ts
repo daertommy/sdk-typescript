@@ -1,5 +1,5 @@
 import { decode, encode } from '../encoding';
-import { IllegalStateError, PayloadConverterError, ValueError } from '../errors';
+import { PayloadConverterError, ValueError } from '../errors';
 import { Payload } from '../interfaces';
 import { encodingKeys, encodingTypes, METADATA_ENCODING_KEY } from './types';
 
@@ -209,7 +209,12 @@ export class BinaryPayloadConverter implements PayloadConverterWithEncoding {
   }
 
   public fromPayload<T>(content: Payload): T {
-    return content.data as any;
+    return (
+      // Wrap with Uint8Array from this context to ensure `instanceof` works
+      (
+        content.data ? new Uint8Array(content.data.buffer, content.data.byteOffset, content.data.length) : content.data
+      ) as any
+    );
   }
 }
 
@@ -227,7 +232,7 @@ export class JsonPayloadConverter implements PayloadConverterWithEncoding {
     let json;
     try {
       json = JSON.stringify(value);
-    } catch (e) {
+    } catch (err) {
       return undefined;
     }
 
@@ -255,7 +260,7 @@ export class SearchAttributePayloadConverter implements PayloadConverter {
   validNonDateTypes = ['string', 'number', 'boolean'];
 
   public toPayload(values: unknown): Payload {
-    if (!(values instanceof Array)) {
+    if (!Array.isArray(values)) {
       throw new ValueError(`SearchAttribute value must be an array`);
     }
 
@@ -263,8 +268,7 @@ export class SearchAttributePayloadConverter implements PayloadConverter {
       const firstValue = values[0];
       const firstType = typeof firstValue;
       if (firstType === 'object') {
-        for (const idx in values) {
-          const value = values[idx];
+        for (const [idx, value] of values.entries()) {
           if (!(value instanceof Date)) {
             throw new ValueError(
               `SearchAttribute values must arrays of strings, numbers, booleans, or Dates. The value ${value} at index ${idx} is of type ${typeof value}`
@@ -276,8 +280,7 @@ export class SearchAttributePayloadConverter implements PayloadConverter {
           throw new ValueError(`SearchAttribute array values must be: string | number | boolean | Date`);
         }
 
-        for (const idx in values) {
-          const value = values[idx];
+        for (const [idx, value] of values.entries()) {
           if (typeof value !== firstType) {
             throw new ValueError(
               `All SearchAttribute array values must be of the same type. The first value ${firstValue} of type ${firstType} doesn't match value ${value} of type ${typeof value} at index ${idx}`
@@ -290,7 +293,7 @@ export class SearchAttributePayloadConverter implements PayloadConverter {
     // JSON.stringify takes care of converting Dates to ISO strings
     const ret = this.jsonConverter.toPayload(values);
     if (ret === undefined) {
-      throw new IllegalStateError('Could not convert search attributes to payloads');
+      throw new ValueError('Could not convert search attributes to payloads');
     }
     return ret;
   }
@@ -304,7 +307,7 @@ export class SearchAttributePayloadConverter implements PayloadConverter {
     }
 
     const value = this.jsonConverter.fromPayload(payload);
-    let arrayWrappedValue = value instanceof Array ? value : [value];
+    let arrayWrappedValue = Array.isArray(value) ? value : [value];
 
     const searchAttributeType = decode(payload.metadata.type);
     if (searchAttributeType === 'Datetime') {

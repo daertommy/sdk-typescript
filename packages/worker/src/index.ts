@@ -37,6 +37,7 @@ export {
   defaultPayloadConverter,
   State,
   Worker,
+  WorkerStatus,
 } from './worker';
 export {
   appendDefaultInterceptors,
@@ -50,10 +51,18 @@ export {
   WorkflowBundlePathWithSourceMap, // eslint-disable-line deprecation/deprecation
 } from './worker-options';
 export { ReplayError, ReplayHistoriesIterable, ReplayResult } from './replay';
-export { WorkflowInboundLogInterceptor, workflowLogAttributes } from './workflow-log-interceptor';
+export {
+  WorkflowInboundLogInterceptor, // eslint-disable-line deprecation/deprecation
+  WorkflowLogInterceptor,
+  workflowLogAttributes,
+} from './workflow-log-interceptor';
 export {
   BundleOptions,
   bundleWorkflowCode,
-  defaultWorflowInterceptorModules,
+  defaultWorkflowInterceptorModules,
+  /**
+   * @deprecated Use `defaultWorkflowInterceptorModules` instead
+   */
+  defaultWorkflowInterceptorModules as defaultWorflowInterceptorModules,
   WorkflowBundleWithSourceMap,
 } from './workflow/bundler';

@@ -6,8 +6,10 @@ import {
   SearchAttributes,
   SignalDefinition,
   QueryDefinition,
+  Duration,
+  VersioningIntent,
 } from '@temporalio/common';
-import { checkExtends } from '@temporalio/common/lib/type-helpers';
+import { checkExtends, SymbolBasedInstanceOfError } from '@temporalio/common/lib/type-helpers';
 import type { coresdk } from '@temporalio/proto';
 
 /**
@@ -167,9 +169,8 @@ export interface ParentWorkflowInfo {
 /**
  * Not an actual error, used by the Workflow runtime to abort execution when {@link continueAsNew} is called
  */
+@SymbolBasedInstanceOfError('ContinueAsNew')
 export class ContinueAsNew extends Error {
-  public readonly name = 'ContinueAsNew';
-
   constructor(public readonly command: coresdk.workflow_commands.IContinueAsNewWorkflowExecution) {
     super('Workflow continued as new');
   }
@@ -191,12 +192,12 @@ export interface ContinueAsNewOptions {
    * Timeout for the entire Workflow run
    * @format {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  workflowRunTimeout?: string;
+  workflowRunTimeout?: Duration;
   /**
    * Timeout for a single Workflow task
    * @format {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  workflowTaskTimeout?: string;
+  workflowTaskTimeout?: Duration;
   /**
    * Non-searchable attributes to attach to next Workflow run
    */
@@ -205,6 +206,13 @@ export interface ContinueAsNewOptions {
    * Searchable attributes to attach to next Workflow run
    */
   searchAttributes?: SearchAttributes;
+  /**
+   * When using the Worker Versioning feature, specifies whether this Workflow should
+   * Continue-as-New onto a worker with a compatible Build Id or not. See {@link VersioningIntent}.
+   *
+   * @experimental
+   */
+  versioningIntent?: VersioningIntent;
 }
 
 /**
@@ -307,6 +315,14 @@ export interface ChildWorkflowOptions extends CommonWorkflowOptions {
    * @default {@link ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE}
    */
   parentClosePolicy?: ParentClosePolicy;
+
+  /**
+   * When using the Worker Versioning feature, specifies whether this Child Workflow should run on
+   * a worker with a compatible Build Id or not. See {@link VersioningIntent}.
+   *
+   * @experimental
+   */
+  versioningIntent?: VersioningIntent;
 }
 
 export type RequiredChildWorkflowOptions = Required<Pick<ChildWorkflowOptions, 'workflowId' | 'cancellationType'>> & {
@@ -386,6 +402,7 @@ export interface WorkflowCreateOptions {
 
 export interface WorkflowCreateOptionsInternal extends WorkflowCreateOptions {
   sourceMap: RawSourceMap;
+  registeredActivityNames: Set<string>;
   getTimeOfDay(): bigint;
 }
 

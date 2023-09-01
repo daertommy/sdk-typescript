@@ -1,4 +1,5 @@
 import assert from 'node:assert';
+import { URL, URLSearchParams } from 'node:url';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import vm from 'node:vm';
 import * as internals from '@temporalio/workflow/lib/worker-interface';
@@ -55,8 +56,10 @@ export class ReusableVMWorkflowCreator implements WorkflowCreator {
 
   constructor(
     script: vm.Script,
-    public readonly workflowBundle: WorkflowBundleWithSourceMapAndFilename,
-    public readonly isolateExecutionTimeoutMs: number
+    protected readonly workflowBundle: WorkflowBundleWithSourceMapAndFilename,
+    protected readonly isolateExecutionTimeoutMs: number,
+    /** Known activity names registered on the executing worker */
+    protected readonly registeredActivityNames: Set<string>
   ) {
     if (!ReusableVMWorkflowCreator.unhandledRejectionHandlerHasBeenSet) {
       setUnhandledRejectionHandler((runId) => ReusableVMWorkflowCreator.workflowByRunId.get(runId));
@@ -88,7 +91,7 @@ export class ReusableVMWorkflowCreator implements WorkflowCreator {
         },
       }
     );
-    const globals = { AsyncLocalStorage, assert, __webpack_module_cache__ };
+    const globals = { AsyncLocalStorage, URL, URLSearchParams, assert, __webpack_module_cache__ };
     this._context = vm.createContext(globals, { microtaskMode: 'afterEvaluate' });
     this.injectConsole();
     script.runInContext(this.context);
@@ -166,6 +169,7 @@ export class ReusableVMWorkflowCreator implements WorkflowCreator {
       ...options,
       sourceMap: this.workflowBundle.sourceMap,
       getTimeOfDay: () => timeOfDayToBigint(getTimeOfDay()),
+      registeredActivityNames: this.registeredActivityNames,
     });
     const activator = bag.__TEMPORAL_ACTIVATOR__ as any;
 
@@ -182,12 +186,13 @@ export class ReusableVMWorkflowCreator implements WorkflowCreator {
   public static async create<T extends typeof ReusableVMWorkflowCreator>(
     this: T,
     workflowBundle: WorkflowBundleWithSourceMapAndFilename,
-    isolateExecutionTimeoutMs: number
+    isolateExecutionTimeoutMs: number,
+    registeredActivityNames: Set<string>
   ): Promise<InstanceType<T>> {
     globalHandlers.install(); // Call is idempotent
     await globalHandlers.addWorkflowBundle(workflowBundle);
     const script = new vm.Script(workflowBundle.code, { filename: workflowBundle.filename });
-    return new this(script, workflowBundle, isolateExecutionTimeoutMs) as InstanceType<T>;
+    return new this(script, workflowBundle, isolateExecutionTimeoutMs, registeredActivityNames) as InstanceType<T>;
   }
 
   /**

@@ -1,6 +1,8 @@
 import type { coresdk } from '@temporalio/proto';
 import { RetryPolicy } from './retry-policy';
 import { checkExtends } from './type-helpers';
+import { Duration } from './time';
+import { VersioningIntent } from './versioning-intent';
 
 // Avoid importing the proto implementation to reduce workflow bundle size
 // Copied from coresdk.workflow_commands.ActivityCancellationType
@@ -37,7 +39,7 @@ export interface ActivityOptions {
    * Heartbeat interval. Activity must heartbeat before this interval passes after a last heartbeat or activity start.
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  heartbeatTimeout?: string | number;
+  heartbeatTimeout?: Duration;
 
   /**
    * RetryPolicy that define how activity is retried in case of failure. If this is not set, then the server-defined default activity retry policy will be used. To ensure zero retries, set maximum attempts to 1.
@@ -56,7 +58,7 @@ export interface ActivityOptions {
    * @default `scheduleToCloseTimeout` or unlimited
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  startToCloseTimeout?: string | number;
+  startToCloseTimeout?: Duration;
 
   /**
    * Time that the Activity Task can stay in the Task Queue before it is picked up by a Worker. Do not specify this timeout unless using host specific Task Queues for Activity Tasks are being used for routing.
@@ -65,7 +67,7 @@ export interface ActivityOptions {
    * @default `scheduleToCloseTimeout` or unlimited
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  scheduleToStartTimeout?: string | number;
+  scheduleToStartTimeout?: Duration;
 
   /**
    * Total time that a workflow is willing to wait for Activity to complete.
@@ -76,7 +78,7 @@ export interface ActivityOptions {
    * @default unlimited
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  scheduleToCloseTimeout?: string | number;
+  scheduleToCloseTimeout?: Duration;
 
   /**
    * Determines what the SDK does when the Activity is cancelled.
@@ -99,6 +101,14 @@ export interface ActivityOptions {
    * @default true
    */
   allowEagerDispatch?: boolean;
+
+  /**
+   * When using the Worker Versioning feature, specifies whether this Activity should run on a
+   * worker with a compatible Build Id or not. See {@link VersioningIntent}.
+   *
+   * @experimental
+   */
+  versioningIntent?: VersioningIntent;
 }
 
 /**
@@ -120,7 +130,7 @@ export interface LocalActivityOptions {
    *
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  startToCloseTimeout?: string | number;
+  startToCloseTimeout?: Duration;
 
   /**
    * Limits time the local activity can idle internally before being executed. That can happen if
@@ -132,19 +142,18 @@ export interface LocalActivityOptions {
    * @default unlimited
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  scheduleToStartTimeout?: string | number;
+  scheduleToStartTimeout?: Duration;
 
   /**
    * Indicates how long the caller is willing to wait for local activity completion. Limits how
-   * long retries will be attempted. When not specified defaults to the workflow execution
-   * timeout (which may be unset).
+   * long retries will be attempted.
    *
    * Either this option or {@link startToCloseTimeout} is required.
    *
    * @default unlimited
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    */
-  scheduleToCloseTimeout?: string | number;
+  scheduleToCloseTimeout?: Duration;
 
   /**
    * If the activity is retrying and backoff would exceed this value, a server side timer will be scheduled for the next attempt.
@@ -153,7 +162,7 @@ export interface LocalActivityOptions {
    * @default 1 minute
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    **/
-  localRetryThreshold?: string | number;
+  localRetryThreshold?: Duration;
 
   /**
    * Determines what the SDK does when the Activity is cancelled.

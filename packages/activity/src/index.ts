@@ -71,7 +71,9 @@
 
 import 'abort-controller/polyfill'; // eslint-disable-line import/no-unassigned-import
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { Logger, Duration } from '@temporalio/common';
 import { msToNumber } from '@temporalio/common/lib/time';
+import { SymbolBasedInstanceOfError } from '@temporalio/common/lib/type-helpers';
 
 export {
   ActivityFunction,
@@ -98,16 +100,16 @@ export {
  *}
  *```
  */
-export class CompleteAsyncError extends Error {
-  public readonly name: string = 'CompleteAsyncError';
+@SymbolBasedInstanceOfError('CompleteAsyncError')
+export class CompleteAsyncError extends Error {}
 
-  constructor() {
-    super();
-  }
+// Make it safe to use @temporalio/activity with multiple versions installed.
+const asyncLocalStorageSymbol = Symbol.for('__temporal_activity_context_storage__');
+if (!(globalThis as any)[asyncLocalStorageSymbol]) {
+  (globalThis as any)[asyncLocalStorageSymbol] = new AsyncLocalStorage<Context>();
 }
 
-/** @ignore */
-export const asyncLocalStorage = new AsyncLocalStorage<Context>();
+export const asyncLocalStorage: AsyncLocalStorage<Context> = (globalThis as any)[asyncLocalStorageSymbol];
 
 /**
  * Holds information about the current Activity Execution. Retrieved inside an Activity with `Context.current().info`.
@@ -156,14 +158,16 @@ export interface Info {
   scheduledTimestampMs: number;
   /**
    * Timeout for this Activity from schedule to close in milliseconds.
-   *
-   * Might be undefined for local activities.
    */
-  scheduleToCloseTimeoutMs?: number;
+  scheduleToCloseTimeoutMs: number;
   /**
    * Timeout for this Activity from start to close in milliseconds
    */
   startToCloseTimeoutMs: number;
+  /**
+   * Timestamp for when the current attempt of this Activity was scheduled in milliseconds
+   */
+  currentAttemptScheduledTimestampMs: number;
   /**
    * Heartbeat timeout in milliseconds.
    * If this timeout is defined, the Activity must heartbeat before the timeout is reached.
@@ -212,10 +216,11 @@ export class Context {
    * An {@link https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal | `AbortSignal`} that can be used to react to
    * Activity cancellation.
    *
-   * Used by {@link https://www.npmjs.com/package/node-fetch#request-cancellation-with-abortsignal | fetch} to abort an
+   * This can be passed in to libraries such as
+   * {@link https://www.npmjs.com/package/node-fetch#request-cancellation-with-abortsignal | fetch} to abort an
    * in-progress request and
    * {@link https://nodejs.org/api/child_process.html#child_process_child_process_spawn_command_args_options child_process}
-   * to abort a child process, and is supported by some other libraries as well.
+   * to abort a child process, as well as other built-in node modules and modules found on npm.
    *
    * @see [Cancellation](/api/namespaces/activity#cancellation)
    */
@@ -224,6 +229,19 @@ export class Context {
    * The heartbeat implementation, injected via the constructor.
    */
   protected readonly heartbeatFn: (details?: any) => void;
+  /**
+   * The logger for this Activity.
+   *
+   * This defaults to the `Runtime`'s Logger (see {@link Runtime.logger}). If the {@link ActivityInboundLogInterceptor}
+   * is installed (by default, it is; see {@link WorkerOptions.interceptors}), then various attributes from the current
+   * Activity context will automatically be included as metadata on every log entries, and some key events of the
+   * Activity's life cycle will automatically be logged (at 'DEBUG' level for most messages; 'WARN' for failures).
+   *
+   * To use a different Logger, either overwrite this property from an Activity Interceptor, or explicitly register the
+   * `ActivityInboundLogInterceptor` with your custom Logger. You may also subclass `ActivityInboundLogInterceptor` to
+   * customize attributes that are emitted as metadata.
+   */
+  public log: Logger;
 
   /**
    * **Not** meant to instantiated by Activity code, used by the worker.
@@ -234,12 +252,14 @@ export class Context {
     info: Info,
     cancelled: Promise<never>,
     cancellationSignal: AbortSignal,
-    heartbeat: (details?: any) => void
+    heartbeat: (details?: any) => void,
+    logger: Logger
   ) {
     this.info = info;
     this.cancelled = cancelled;
     this.cancellationSignal = cancellationSignal;
     this.heartbeatFn = heartbeat;
+    this.log = logger;
   }
 
   /**
@@ -255,7 +275,13 @@ export class Context {
    *
    * Calling `heartbeat()` from a Local Activity has no effect.
    *
+   * The SDK automatically throttles heartbeat calls to the server with a duration of 80% of the specified activity
+   * heartbeat timeout. Throttling behavior may be customized with the `{@link maxHeartbeatThrottleInterval | https://typescript.temporal.io/api/interfaces/worker.WorkerOptions#maxheartbeatthrottleinterval} and {@link defaultHeartbeatThrottleInterval | https://typescript.temporal.io/api/interfaces/worker.WorkerOptions#defaultheartbeatthrottleinterval} worker options.
+   *
    * Activities must heartbeat in order to receive Cancellation (unless they're Local Activities, which don't need to).
+   *
+   * :warning: Cancellation is not propagated from this function, use {@link cancelled} or {@link cancellationSignal} to
+   * subscribe to cancellation notifications.
    */
   public heartbeat(details?: unknown): void {
     this.heartbeatFn(details);
@@ -279,7 +305,7 @@ export class Context {
    * @param ms Sleep duration: number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    * @returns A Promise that either resolves when `ms` is reached or rejects when the Activity is cancelled
    */
-  public sleep(ms: number | string): Promise<void> {
+  public sleep(ms: Duration): Promise<void> {
     let handle: NodeJS.Timeout;
     const timer = new Promise<void>((resolve) => {
       handle = setTimeout(resolve, msToNumber(ms));

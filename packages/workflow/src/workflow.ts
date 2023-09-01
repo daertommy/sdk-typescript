@@ -17,7 +17,8 @@ import {
   WorkflowResultType,
   WorkflowReturnType,
 } from '@temporalio/common';
-import { msOptionalToTs, msToNumber, msToTs, tsToMs } from '@temporalio/common/lib/time';
+import { versioningIntentToProto } from '@temporalio/common/lib/versioning-intent-enum';
+import { Duration, msOptionalToTs, msToNumber, msToTs, tsToMs } from '@temporalio/common/lib/time';
 import { composeInterceptors } from '@temporalio/common/lib/interceptors';
 import { CancellationScope, registerSleepImplementation } from './cancellation-scope';
 import {
@@ -108,7 +109,7 @@ function timerNextHandler(input: TimerInput) {
  * @param ms sleep duration - number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}.
  * If given a negative number or 0, value will be set to 1.
  */
-export function sleep(ms: number | string): Promise<void> {
+export function sleep(ms: Duration): Promise<void> {
   const activator = assertInWorkflowContext('Workflow.sleep(...) may only be used from a Workflow Execution');
   const seq = activator.nextSeqs.timer++;
 
@@ -131,11 +132,6 @@ function validateActivityOptions(options: ActivityOptions): void {
 // Use same validation we use for normal activities
 const validateLocalActivityOptions = validateActivityOptions;
 
-/**
- * Hooks up activity promise to current cancellation scope and completion callbacks.
- *
- * Returns `false` if the current scope is already cancelled.
- */
 /**
  * Push a scheduleActivity command into activator accumulator and register completion
  */
@@ -177,6 +173,7 @@ function scheduleActivityNextHandler({ options, args, headers, seq, activityType
         headers,
         cancellationType: options.cancellationType,
         doNotEagerlyExecute: !(options.allowEagerDispatch ?? true),
+        versioningIntent: versioningIntentToProto(options.versioningIntent),
       },
     });
     activator.completions.activity.set(seq, {
@@ -199,6 +196,11 @@ async function scheduleLocalActivityNextHandler({
   originalScheduleTime,
 }: LocalActivityInput): Promise<unknown> {
   const activator = getActivator();
+  // Eagerly fail the local activity (which will in turn fail the workflow task.
+  // Do not fail on replay where the local activities may not be registered on the replay worker.
+  if (!workflowInfo().unsafe.isReplaying && !activator.registeredActivityNames.has(activityType)) {
+    throw new ReferenceError(`Local activity of type '${activityType}' not registered on worker`);
+  }
   validateLocalActivityOptions(options);
 
   return new Promise((resolve, reject) => {
@@ -370,6 +372,7 @@ function startChildWorkflowExecutionNextHandler({
           ? mapToPayloads(searchAttributePayloadConverter, options.searchAttributes)
           : undefined,
         memo: options.memo && mapToPayloads(activator.payloadConverter, options.memo),
+        versioningIntent: versioningIntentToProto(options.versioningIntent),
       },
     });
     activator.completions.childWorkflowStart.set(seq, {
@@ -509,7 +512,7 @@ export type ActivityInterfaceFor<T> = {
  * });
  *
  * export function execute(): Promise<void> {
- *   const response = await httpGet('http://example.com');
+ *   const response = await httpGet("http://example.com");
  *   // ...
  * }
  * ```
@@ -769,7 +772,7 @@ export async function executeChild<T extends Workflow>(
  * @return The result of the child Workflow.
  */
 export async function executeChild<T extends Workflow>(
-  workflowType: T,
+  workflowFunc: T,
   options: WithWorkflowArgs<T, ChildWorkflowOptions>
 ): Promise<WorkflowResultType<T>>;
 
@@ -886,8 +889,8 @@ export function inWorkflowContext(): boolean {
  * export function myWorkflow() {
  *   return {
  *     async execute() {
- *       logger.info('hey ho');
- *       logger.error('lets go');
+ *       logger.info("hey ho");
+ *       logger.error("lets go");
  *     }
  *   };
  * }
@@ -906,11 +909,19 @@ export function proxySinks<T extends Sinks>(): T {
                 const activator = assertInWorkflowContext(
                   'Proxied sinks functions may only be used from a Workflow Execution.'
                 );
+                const info = workflowInfo();
                 activator.sinkCalls.push({
                   ifaceName: ifaceName as string,
                   fnName: fnName as string,
                   // Only available from node 17.
                   args: (globalThis as any).structuredClone ? (globalThis as any).structuredClone(args) : args,
+                  // Clone the workflowInfo object so that any further mutations to it does not get reflected in sink
+                  workflowInfo: {
+                    ...info,
+                    // Make sure to clone any sub-property that may get mutated during the lifespan of an activation
+                    searchAttributes: { ...info.searchAttributes },
+                    memo: info.memo ? { ...info.memo } : undefined,
+                  },
                 });
               };
             },
@@ -956,6 +967,7 @@ export function makeContinueAsNewFunc<F extends Workflow>(
           : undefined,
         workflowRunTimeout: msOptionalToTs(options.workflowRunTimeout),
         workflowTaskTimeout: msOptionalToTs(options.workflowTaskTimeout),
+        versioningIntent: versioningIntentToProto(options.versioningIntent),
       });
     });
     return fn({
@@ -1085,14 +1097,14 @@ function patchInternal(patchId: string, deprecated: boolean): boolean {
  *
  * @returns a boolean indicating whether the condition was true before the timeout expires
  */
-export function condition(fn: () => boolean, timeout: number | string): Promise<boolean>;
+export function condition(fn: () => boolean, timeout: Duration): Promise<boolean>;
 
 /**
  * Returns a Promise that resolves when `fn` evaluates to `true`.
  */
 export function condition(fn: () => boolean): Promise<void>;
 
-export async function condition(fn: () => boolean, timeout?: number | string): Promise<void | boolean> {
+export async function condition(fn: () => boolean, timeout?: Duration): Promise<void | boolean> {
   assertInWorkflowContext('Workflow.condition(...) may only be used from a Workflow Execution.');
   // Prior to 1.5.0, `condition(fn, 0)` was treated as equivalent to `condition(fn, undefined)`
   if (timeout === 0 && !patched(CONDITION_0_PATCH)) {
@@ -1303,11 +1315,13 @@ export const log: LoggerSinks['defaultWorkerLogger'] = Object.fromEntries(
   (['trace', 'debug', 'info', 'warn', 'error'] as Array<keyof LoggerSinks['defaultWorkerLogger']>).map((level) => {
     return [
       level,
-      (message: string, attrs: Record<string, unknown>) => {
-        assertInWorkflowContext('Workflow.log(...) may only be used from a Workflow Execution.)');
+      (message: string, attrs?: Record<string, unknown>) => {
+        const activator = assertInWorkflowContext('Workflow.log(...) may only be used from a Workflow Execution.');
+        const getLogAttributes = composeInterceptors(activator.interceptors.outbound, 'getLogAttributes', (a) => a);
         return loggerSinks.defaultWorkerLogger[level](message, {
           // Inject the call time in nanosecond resolution as expected by the worker logger.
-          [LogTimestamp]: getActivator().getTimeOfDay(),
+          [LogTimestamp]: activator.getTimeOfDay(),
+          ...getLogAttributes({}),
           ...attrs,
         });
       },

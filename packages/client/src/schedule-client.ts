@@ -9,9 +9,10 @@ import {
 } from '@temporalio/common/lib/internal-non-workflow';
 import { temporal } from '@temporalio/proto';
 import { optionalDateToTs, optionalTsToDate, optionalTsToMs, tsToDate } from '@temporalio/common/lib/time';
+import { SymbolBasedInstanceOfError } from '@temporalio/common/lib/type-helpers';
 import { CreateScheduleInput, CreateScheduleOutput, ScheduleClientInterceptor } from './interceptors';
 import { WorkflowService } from './types';
-import { isServerErrorResponse, ServiceError } from './errors';
+import { isGrpcServiceError, ServiceError } from './errors';
 import {
   Backfill,
   CompiledScheduleUpdateOptions,
@@ -45,6 +46,7 @@ import {
   LoadedWithDefaults,
   WithDefaults,
 } from './base-client';
+import { rethrowKnownErrorTypes } from './helpers';
 
 /**
  * Handle to a single Schedule
@@ -147,9 +149,6 @@ function assertRequiredScheduleOptions(
     case 'startWorkflow':
       if (!opts.action.taskQueue) {
         throw new TypeError(`Missing ${structureName}.action.taskQueue for 'startWorkflow' action`);
-      }
-      if (!opts.action.workflowId && action === 'UPDATE') {
-        throw new TypeError(`Missing ${structureName}.action.workflowId for 'startWorkflow' action`);
       }
       if (!opts.action.workflowType) {
         throw new TypeError(`Missing ${structureName}.action.workflowType for 'startWorkflow' action`);
@@ -263,7 +262,7 @@ export class ScheduleClient extends BaseClient {
       if (err.code === grpcStatus.ALREADY_EXISTS) {
         throw new ScheduleAlreadyRunning('Schedule already exists and is running', opts.scheduleId);
       }
-      this.rethrowGrpcError(err, opts.scheduleId, 'Failed to create schedule');
+      this.rethrowGrpcError(err, 'Failed to create schedule', opts.scheduleId);
     }
   }
 
@@ -279,7 +278,7 @@ export class ScheduleClient extends BaseClient {
         scheduleId,
       });
     } catch (err: any) {
-      this.rethrowGrpcError(err, scheduleId, 'Failed to describe schedule');
+      this.rethrowGrpcError(err, 'Failed to describe schedule', scheduleId);
     }
   }
 
@@ -306,7 +305,7 @@ export class ScheduleClient extends BaseClient {
     try {
       return await this.workflowService.updateSchedule(req);
     } catch (err: any) {
-      this.rethrowGrpcError(err, scheduleId, 'Failed to update schedule');
+      this.rethrowGrpcError(err, 'Failed to update schedule', scheduleId);
     }
   }
 
@@ -326,7 +325,7 @@ export class ScheduleClient extends BaseClient {
         patch,
       });
     } catch (err: any) {
-      this.rethrowGrpcError(err, scheduleId, 'Failed to patch schedule');
+      this.rethrowGrpcError(err, 'Failed to patch schedule', scheduleId);
     }
   }
 
@@ -343,7 +342,7 @@ export class ScheduleClient extends BaseClient {
         scheduleId,
       });
     } catch (err: any) {
-      this.rethrowGrpcError(err, scheduleId, 'Failed to delete schedule');
+      this.rethrowGrpcError(err, 'Failed to delete schedule', scheduleId);
     }
   }
 
@@ -366,13 +365,16 @@ export class ScheduleClient extends BaseClient {
   public async *list(options?: ListScheduleOptions): AsyncIterable<ScheduleSummary> {
     let nextPageToken: Uint8Array | undefined = undefined;
     for (;;) {
-      const response: temporal.api.workflowservice.v1.IListSchedulesResponse = await this.workflowService.listSchedules(
-        {
+      let response: temporal.api.workflowservice.v1.ListSchedulesResponse;
+      try {
+        response = await this.workflowService.listSchedules({
           nextPageToken,
           namespace: this.options.namespace,
           maximumPageSize: options?.pageSize,
-        }
-      );
+        });
+      } catch (e) {
+        this.rethrowGrpcError(e, 'Failed to list schedules', undefined);
+      }
 
       for (const raw of response.schedules ?? []) {
         yield <ScheduleSummary>{
@@ -455,7 +457,11 @@ export class ScheduleClient extends BaseClient {
         const currentHeader: Headers = current.raw.schedule?.action?.startWorkflow?.header?.fields ?? {};
         const updated = updateFn(current);
         assertRequiredScheduleOptions(updated, 'UPDATE');
-        await this.client._updateSchedule(scheduleId, compileUpdatedScheduleOptions(updated), currentHeader);
+        await this.client._updateSchedule(
+          scheduleId,
+          compileUpdatedScheduleOptions(scheduleId, updated),
+          currentHeader
+        );
       },
 
       async delete(): Promise<void> {
@@ -497,10 +503,12 @@ export class ScheduleClient extends BaseClient {
     };
   }
 
-  protected rethrowGrpcError(err: unknown, scheduleId: string, fallbackMessage: string): never {
-    if (isServerErrorResponse(err)) {
+  protected rethrowGrpcError(err: unknown, fallbackMessage: string, scheduleId?: string): never {
+    if (isGrpcServiceError(err)) {
+      rethrowKnownErrorTypes(err);
+
       if (err.code === grpcStatus.NOT_FOUND) {
-        throw new ScheduleNotFoundError(err.details ?? 'Schedule not found', scheduleId);
+        throw new ScheduleNotFoundError(err.details ?? 'Schedule not found', scheduleId ?? '');
       }
       if (
         err.code === grpcStatus.INVALID_ARGUMENT &&
@@ -508,9 +516,10 @@ export class ScheduleClient extends BaseClient {
       ) {
         throw new TypeError(err.message.replace(/^3 INVALID_ARGUMENT: Invalid schedule spec: /, ''));
       }
+
       throw new ServiceError(fallbackMessage, { cause: err });
     }
-    throw new ServiceError('Unexpected error while making gRPC request');
+    throw new ServiceError('Unexpected error while making gRPC request', { cause: err as Error });
   }
 }
 
@@ -519,9 +528,8 @@ export class ScheduleClient extends BaseClient {
  *
  * @experimental
  */
+@SymbolBasedInstanceOfError('ScheduleAlreadyRunning')
 export class ScheduleAlreadyRunning extends Error {
-  public readonly name: string = 'ScheduleAlreadyRunning';
-
   constructor(message: string, public readonly scheduleId: string) {
     super(message);
   }
@@ -535,9 +543,8 @@ export class ScheduleAlreadyRunning extends Error {
  *
  * @experimental
  */
+@SymbolBasedInstanceOfError('ScheduleNotFoundError')
 export class ScheduleNotFoundError extends Error {
-  public readonly name: string = 'ScheduleNotFoundError';
-
   constructor(message: string, public readonly scheduleId: string) {
     super(message);
   }

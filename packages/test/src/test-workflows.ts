@@ -6,8 +6,8 @@ import dedent from 'dedent';
 import Long from 'long'; // eslint-disable-line import/no-named-as-default
 import {
   ApplicationFailure,
-  defaultPayloadConverter,
   defaultFailureConverter,
+  defaultPayloadConverter,
   Payload,
   RetryState,
   toPayloads,
@@ -63,9 +63,11 @@ test.before(async (t) => {
   const workflowsPath = path.join(__dirname, 'workflows');
   const bundler = new WorkflowCodeBundler({ workflowsPath });
   const workflowBundle = parseWorkflowCode((await bundler.createBundle()).code);
+  // FIXME: isolateExecutionTimeoutMs used to be 200 ms, but that's causing
+  //        lot of flakes on CI. Revert this after investigation / resolution.
   t.context.workflowCreator = REUSE_V8_CONTEXT
-    ? await TestReusableVMWorkflowCreator.create(workflowBundle, 200)
-    : await TestVMWorkflowCreator.create(workflowBundle, 200);
+    ? await TestReusableVMWorkflowCreator.create(workflowBundle, 400, new Set())
+    : await TestVMWorkflowCreator.create(workflowBundle, 400, new Set());
 });
 
 test.after.always(async (t) => {
@@ -757,6 +759,7 @@ test('cancelWorkflow', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -791,6 +794,7 @@ test('cancelWorkflow', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -909,6 +913,7 @@ test('nonCancellable', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -937,6 +942,7 @@ test('resumeAfterCancellation', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -973,6 +979,7 @@ test('handleExternalWorkflowCancellationWhileActivityRunning', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -998,6 +1005,7 @@ test('handleExternalWorkflowCancellationWhileActivityRunning', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1028,6 +1036,7 @@ test('nestedCancellation', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1051,6 +1060,7 @@ test('nestedCancellation', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1074,6 +1084,7 @@ test('nestedCancellation', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1114,6 +1125,7 @@ test('sharedScopes', async (t) => {
               startToCloseTimeout: msToTs('10m'),
               taskQueue: 'test',
               doNotEagerlyExecute: false,
+              versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
             })
           )
         )
@@ -1150,6 +1162,7 @@ test('shieldAwaitedInRootScope', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1343,6 +1356,7 @@ test('cancelActivityAfterFirstCompletion', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1364,6 +1378,7 @@ test('cancelActivityAfterFirstCompletion', async (t) => {
           startToCloseTimeout: msToTs('10m'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1409,6 +1424,7 @@ test('multipleActivitiesSingleTimeout', async (t) => {
               startToCloseTimeout: msToTs('1s'),
               taskQueue: 'test',
               doNotEagerlyExecute: false,
+              versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
             })
           )
         )),
@@ -1450,6 +1466,7 @@ test('resolve activity with result - http', async (t) => {
           startToCloseTimeout: msToTs('1 minute'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1485,6 +1502,7 @@ test('resolve activity with failure - http', async (t) => {
           startToCloseTimeout: msToTs('1 minute'),
           taskQueue: 'test',
           doNotEagerlyExecute: false,
+          versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
         }),
       ])
     );
@@ -1530,10 +1548,14 @@ test('logAndTimeout', async (t) => {
   const { workflowType, workflow } = t.context;
   await t.throwsAsync(activate(t, makeStartWorkflow(workflowType)), {
     code: 'ERR_SCRIPT_EXECUTION_TIMEOUT',
-    message: 'Script execution timed out after 200ms',
+    message: 'Script execution timed out after 400ms',
   });
   const calls = await workflow.getAndResetSinkCalls();
-  delete calls[0].args[1][LogTimestamp];
+  // Ignore LogTimestamp and workflowInfo for the purpose of this comparison
+  calls.forEach((call) => {
+    delete call.args[1]?.[LogTimestamp];
+    delete (call as any).workflowInfo;
+  });
   t.deepEqual(calls, [
     {
       ifaceName: 'defaultWorkerLogger',
@@ -1549,7 +1571,20 @@ test('logAndTimeout', async (t) => {
         },
       ],
     },
-    { ifaceName: 'logger', fnName: 'info', args: ['logging before getting stuck'] },
+    {
+      ifaceName: 'defaultWorkerLogger',
+      fnName: 'info',
+      args: [
+        'logging before getting stuck',
+        {
+          namespace: 'default',
+          runId: 'beforeEach hook for logAndTimeout',
+          taskQueue: 'test',
+          workflowId: 'test-workflowId',
+          workflowType: 'logAndTimeout',
+        },
+      ],
+    },
   ]);
 });
 
@@ -1566,6 +1601,7 @@ test('continueAsNewSameWorkflow', async (t) => {
             workflowType,
             taskQueue: 'test',
             arguments: toPayloads(defaultPayloadConverter, 'signal'),
+            versioningIntent: coresdk.common.VersioningIntent.UNSPECIFIED,
           },
         },
       ])

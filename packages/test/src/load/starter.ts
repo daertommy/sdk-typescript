@@ -1,12 +1,12 @@
 import os from 'node:os';
-import fs from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
 import arg from 'arg';
 import pidusage from 'pidusage';
 import * as grpc from '@grpc/grpc-js';
 import { v4 as uuid4 } from 'uuid';
 import { interval, range, Observable, OperatorFunction, ReplaySubject, pipe, lastValueFrom } from 'rxjs';
 import { bufferTime, map, mergeMap, tap, takeUntil } from 'rxjs/operators';
-import { Connection, isServerErrorResponse, ServiceError, WorkflowClient } from '@temporalio/client';
+import { Connection, ServiceError, WorkflowClient, isGrpcServiceError } from '@temporalio/client';
 import { toMB } from '@temporalio/worker/lib/utils';
 import { StarterArgSpec, starterArgSpec, getRequired } from './args';
 
@@ -28,7 +28,7 @@ async function runWorkflow({ client, workflowName, taskQueue, queryingOptions }:
         } catch (err) {
           if (
             err instanceof ServiceError &&
-            isServerErrorResponse(err.cause) &&
+            isGrpcServiceError(err.cause) &&
             err.cause.code !== undefined &&
             ACCEPTABLE_QUERY_ERROR_CODES.includes(err.cause.code)
           ) {
@@ -201,7 +201,22 @@ async function main() {
   const workerMemoryLogFile = args['--worker-memory-log-file'];
   const workerCPULogFile = args['--worker-cpu-log-file'];
 
-  const connection = await Connection.connect({ address: serverAddress });
+  const clientCertPath = args['--client-cert-path'];
+  const clientKeyPath = args['--client-key-path'];
+
+  const tlsConfig =
+    clientCertPath && clientKeyPath
+      ? {
+          tls: {
+            clientCertPair: {
+              crt: readFileSync(clientCertPath),
+              key: readFileSync(clientKeyPath),
+            },
+          },
+        }
+      : {};
+
+  const connection = await Connection.connect({ address: serverAddress, ...tlsConfig });
   const client = new WorkflowClient({ connection, namespace });
   const stopCondition = runForSeconds ? new UntilSecondsElapsed(runForSeconds) : new NumberOfWorkflows(iterations);
   const queryingOptions = queryName ? { queryName, queryIntervalMs, initialQueryDelayMs } : undefined;

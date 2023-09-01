@@ -1,10 +1,12 @@
-import { Status } from '@grpc/grpc-js/build/src/constants';
+import { status as grpcStatus } from '@grpc/grpc-js';
 import { ensureTemporalFailure } from '@temporalio/common';
+import type { temporal } from '@temporalio/proto';
 import {
   encodeErrorToFailure,
   encodeToPayloads,
   filterNullAndUndefined,
 } from '@temporalio/common/lib/internal-non-workflow';
+import { SymbolBasedInstanceOfError } from '@temporalio/common/lib/type-helpers';
 import {
   BaseClient,
   BaseClientOptions,
@@ -12,32 +14,30 @@ import {
   LoadedWithDefaults,
   WithDefaults,
 } from './base-client';
-import { isServerErrorResponse } from './errors';
+import { isGrpcServiceError } from './errors';
 import { WorkflowService } from './types';
+import { rethrowKnownErrorTypes } from './helpers';
 
 /**
  * Thrown by {@link AsyncCompletionClient} when trying to complete or heartbeat an Activity that does not exist in the
  * system.
  */
-export class ActivityNotFoundError extends Error {
-  public readonly name = 'ActivityNotFoundError';
-}
+@SymbolBasedInstanceOfError('ActivityNotFoundError')
+export class ActivityNotFoundError extends Error {}
 
 /**
  * Thrown by {@link AsyncCompletionClient} when trying to complete or heartbeat
  * an Activity for any reason apart from {@link ActivityNotFoundError}.
  */
-export class ActivityCompletionError extends Error {
-  public readonly name = 'ActivityCompletionError';
-}
+@SymbolBasedInstanceOfError('ActivityCompletionError')
+export class ActivityCompletionError extends Error {}
 
 /**
  * Thrown by {@link AsyncCompletionClient.heartbeat} when the Workflow has
  * requested to cancel the reporting Activity.
  */
-export class ActivityCancelledError extends Error {
-  public readonly name = 'ActivityCancelledError';
-}
+@SymbolBasedInstanceOfError('ActivityCancelledError')
+export class ActivityCancelledError extends Error {}
 
 /**
  * Options used to configure {@link AsyncCompletionClient}
@@ -95,10 +95,13 @@ export class AsyncCompletionClient extends BaseClient {
    * Transforms grpc errors into well defined TS errors.
    */
   protected handleError(err: unknown): never {
-    if (isServerErrorResponse(err)) {
-      if (err.code === Status.NOT_FOUND) {
+    if (isGrpcServiceError(err)) {
+      rethrowKnownErrorTypes(err);
+
+      if (err.code === grpcStatus.NOT_FOUND) {
         throw new ActivityNotFoundError('Not found');
       }
+
       throw new ActivityCompletionError(err.details || err.message);
     }
     throw new ActivityCompletionError('Unexpected failure');
@@ -114,20 +117,21 @@ export class AsyncCompletionClient extends BaseClient {
   async complete(fullActivityId: FullActivityId, result: unknown): Promise<void>;
 
   async complete(taskTokenOrFullActivityId: Uint8Array | FullActivityId, result: unknown): Promise<void> {
+    const payloads = await encodeToPayloads(this.dataConverter, result);
     try {
       if (taskTokenOrFullActivityId instanceof Uint8Array) {
         await this.workflowService.respondActivityTaskCompleted({
           identity: this.options.identity,
           namespace: this.options.namespace,
           taskToken: taskTokenOrFullActivityId,
-          result: { payloads: await encodeToPayloads(this.dataConverter, result) },
+          result: { payloads },
         });
       } else {
         await this.workflowService.respondActivityTaskCompletedById({
           identity: this.options.identity,
           namespace: this.options.namespace,
           ...taskTokenOrFullActivityId,
-          result: { payloads: await encodeToPayloads(this.dataConverter, result) },
+          result: { payloads },
         });
       }
     } catch (err) {
@@ -145,20 +149,21 @@ export class AsyncCompletionClient extends BaseClient {
   async fail(fullActivityId: FullActivityId, err: unknown): Promise<void>;
 
   async fail(taskTokenOrFullActivityId: Uint8Array | FullActivityId, err: unknown): Promise<void> {
+    const failure = await encodeErrorToFailure(this.dataConverter, ensureTemporalFailure(err));
     try {
       if (taskTokenOrFullActivityId instanceof Uint8Array) {
         await this.workflowService.respondActivityTaskFailed({
           identity: this.options.identity,
           namespace: this.options.namespace,
           taskToken: taskTokenOrFullActivityId,
-          failure: await encodeErrorToFailure(this.dataConverter, ensureTemporalFailure(err)),
+          failure,
         });
       } else {
         await this.workflowService.respondActivityTaskFailedById({
           identity: this.options.identity,
           namespace: this.options.namespace,
           ...taskTokenOrFullActivityId,
-          failure: await encodeErrorToFailure(this.dataConverter, err),
+          failure,
         });
       }
     } catch (err) {
@@ -176,20 +181,21 @@ export class AsyncCompletionClient extends BaseClient {
   reportCancellation(fullActivityId: FullActivityId, details?: unknown): Promise<void>;
 
   async reportCancellation(taskTokenOrFullActivityId: Uint8Array | FullActivityId, details?: unknown): Promise<void> {
+    const payloads = await encodeToPayloads(this.dataConverter, details);
     try {
       if (taskTokenOrFullActivityId instanceof Uint8Array) {
         await this.workflowService.respondActivityTaskCanceled({
           identity: this.options.identity,
           namespace: this.options.namespace,
           taskToken: taskTokenOrFullActivityId,
-          details: { payloads: await encodeToPayloads(this.dataConverter, details) },
+          details: { payloads },
         });
       } else {
         await this.workflowService.respondActivityTaskCanceledById({
           identity: this.options.identity,
           namespace: this.options.namespace,
           ...taskTokenOrFullActivityId,
-          details: { payloads: await encodeToPayloads(this.dataConverter, details) },
+          details: { payloads },
         });
       }
     } catch (err) {
@@ -207,33 +213,31 @@ export class AsyncCompletionClient extends BaseClient {
   heartbeat(fullActivityId: FullActivityId, details?: unknown): Promise<void>;
 
   async heartbeat(taskTokenOrFullActivityId: Uint8Array | FullActivityId, details?: unknown): Promise<void> {
+    const payloads = await encodeToPayloads(this.dataConverter, details);
+    let cancelRequested = false;
     try {
+      let response: temporal.api.workflowservice.v1.RecordActivityTaskHeartbeatResponse;
       if (taskTokenOrFullActivityId instanceof Uint8Array) {
-        const { cancelRequested } = await this.workflowService.recordActivityTaskHeartbeat({
+        response = await this.workflowService.recordActivityTaskHeartbeat({
           identity: this.options.identity,
           namespace: this.options.namespace,
           taskToken: taskTokenOrFullActivityId,
-          details: { payloads: await encodeToPayloads(this.dataConverter, details) },
+          details: { payloads },
         });
-        if (cancelRequested) {
-          throw new ActivityCancelledError('cancelled');
-        }
       } else {
-        const { cancelRequested } = await this.workflowService.recordActivityTaskHeartbeatById({
+        response = await this.workflowService.recordActivityTaskHeartbeatById({
           identity: this.options.identity,
           namespace: this.options.namespace,
           ...taskTokenOrFullActivityId,
-          details: { payloads: await encodeToPayloads(this.dataConverter, details) },
+          details: { payloads },
         });
-        if (cancelRequested) {
-          throw new ActivityCancelledError('cancelled');
-        }
       }
+      cancelRequested = !!response.cancelRequested;
     } catch (err) {
-      if (err instanceof ActivityCancelledError) {
-        throw err;
-      }
       this.handleError(err);
+    }
+    if (cancelRequested) {
+      throw new ActivityCancelledError('cancelled');
     }
   }
 }

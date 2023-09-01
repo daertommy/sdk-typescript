@@ -1,6 +1,6 @@
 {
   "name": "@temporalio/proto",
-  "version": "1.7.4",
+  "version": "1.8.4",
   "description": "Temporal.io SDK compiled protobuf definitions",
   "main": "protos/index.js",
   "types": "protos/index.d.ts",
@@ -21,7 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "long": "^5.2.0",
-    "protobufjs": "^7.0.0"
+    "protobufjs": "^7.2.5"
   },
   "bugs": {
     "url": "https://github.com/temporalio/sdk-typescript/issues"

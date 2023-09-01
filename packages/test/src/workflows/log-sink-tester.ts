@@ -6,22 +6,29 @@
  */
 
 import * as wf from '@temporalio/workflow';
-import { LoggerSinks } from './definitions';
-import { successString } from './success-string';
+// @@@SNIPSTART typescript-logger-sink-interface
+import type { Sinks } from '@temporalio/workflow';
 
-const { logger } = wf.proxySinks<LoggerSinks>();
+export interface CustomLoggerSinks extends Sinks {
+  customLogger: {
+    info(message: string): void;
+  };
+}
+// @@@SNIPEND
+
+const { customLogger } = wf.proxySinks<CustomLoggerSinks>();
 
 export async function logSinkTester(): Promise<void> {
-  logger.info(
+  customLogger.info(
     `Workflow execution started, replaying: ${wf.workflowInfo().unsafe.isReplaying}, hl: ${
       wf.workflowInfo().historyLength
     }`
   );
-  // We rely on the test to run with max cached workflows of 1.
-  // Executing this child will flush the current workflow from the cache
-  // causing replay or the first sink call.
-  await wf.executeChild(successString);
-  logger.info(
+  // We rely on this test to run with workflow cache disabled. This sleep()
+  // therefore ends the current WFT, evicting the workflow from cache, and thus
+  // causing replay of the first sink call.
+  await wf.sleep(1);
+  customLogger.info(
     `Workflow execution completed, replaying: ${wf.workflowInfo().unsafe.isReplaying}, hl: ${
       wf.workflowInfo().historyLength
     }`

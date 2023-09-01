@@ -14,6 +14,8 @@
  * @module
  */
 
+import { WorkflowInfo } from './interfaces';
+
 /**
  * Any function signature can be used for Sink functions as long as the return type is `void`.
  *
@@ -38,6 +40,7 @@ export interface SinkCall {
   ifaceName: string;
   fnName: string;
   args: any[];
+  workflowInfo: WorkflowInfo;
 }
 
 /**
@@ -45,10 +48,10 @@ export interface SinkCall {
  */
 export interface LoggerSinks extends Sinks {
   defaultWorkerLogger: {
-    trace(message: string, attrs: Record<string, unknown>): void;
-    debug(message: string, attrs: Record<string, unknown>): void;
-    info(message: string, attrs: Record<string, unknown>): void;
-    warn(message: string, attrs: Record<string, unknown>): void;
-    error(message: string, attrs: Record<string, unknown>): void;
+    trace(message: string, attrs?: Record<string, unknown>): void;
+    debug(message: string, attrs?: Record<string, unknown>): void;
+    info(message: string, attrs?: Record<string, unknown>): void;
+    warn(message: string, attrs?: Record<string, unknown>): void;
+    error(message: string, attrs?: Record<string, unknown>): void;
   };
 }

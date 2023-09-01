@@ -1,7 +1,11 @@
 import { SpanContext } from '@opentelemetry/api';
+import { LogLevel, Duration } from '@temporalio/common';
 import type { TLSConfig } from '@temporalio/common/lib/internal-non-workflow';
 
 export { TLSConfig };
+
+/** @deprecated Import from @temporalio/common instead */
+export { LogLevel };
 
 type Shadow<Base, New> = Base extends object
   ? New extends object
@@ -118,7 +122,7 @@ export interface OtelCollectorExporter {
      * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
      * @defaults 1 second
      */
-    metricsExportInterval?: string | number;
+    metricsExportInterval?: Duration;
   };
 }
 
@@ -266,6 +270,13 @@ export interface WorkerOptions {
    * A string that should be unique to the exact worker code/binary being executed
    */
   buildId: string;
+  /**
+   * If set true, this worker opts into the worker versioning feature. This ensures it only receives
+   * workflow tasks for workflows which it claims to be compatible with.
+   *
+   * For more information, see https://docs.temporal.io/workers#worker-versioning
+   */
+  useVersioning: boolean;
 
   /**
    * The task queue the worker will pull from
@@ -275,6 +286,16 @@ export interface WorkerOptions {
   maxConcurrentActivityTaskExecutions: number;
   maxConcurrentWorkflowTaskExecutions: number;
   maxConcurrentLocalActivityExecutions: number;
+
+  /**
+   * Maximum number of Workflow tasks to poll concurrently.
+   */
+  maxConcurrentWorkflowTaskPolls: number;
+
+  /**
+   * Maximum number of Activity tasks to poll concurrently.
+   */
+  maxConcurrentActivityTaskPolls: number;
 
   /**
    * If set to `false` this worker will only handle workflow tasks and local activities, it will not
@@ -322,9 +343,6 @@ export interface WorkerOptions {
    */
   maxActivitiesPerSecond?: number;
 }
-
-/** Log level - must match rust log level names */
-export type LogLevel = 'TRACE' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
 export interface LogEntry {
   /** Log message */

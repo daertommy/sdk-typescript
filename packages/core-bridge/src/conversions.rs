@@ -294,6 +294,10 @@ impl ObjectHandleConversionsExt for Handle<'_, JsObject> {
             js_value_getter!(cx, self, "maxConcurrentLocalActivityExecutions", JsNumber) as usize;
         let max_outstanding_workflow_tasks =
             js_value_getter!(cx, self, "maxConcurrentWorkflowTaskExecutions", JsNumber) as usize;
+        let max_concurrent_wft_polls =
+            js_value_getter!(cx, self, "maxConcurrentWorkflowTaskPolls", JsNumber) as usize;
+        let max_concurrent_at_polls =
+            js_value_getter!(cx, self, "maxConcurrentActivityTaskPolls", JsNumber) as usize;
         let sticky_queue_schedule_to_start_timeout = Duration::from_millis(js_value_getter!(
             cx,
             self,
@@ -319,10 +323,10 @@ impl ObjectHandleConversionsExt for Handle<'_, JsObject> {
 
         let max_worker_activities_per_second =
             js_optional_getter!(cx, self, "maxActivitiesPerSecond", JsNumber)
-                .map(|num| num.value(cx) as f64);
+                .map(|num| num.value(cx));
         let max_task_queue_activities_per_second =
             js_optional_getter!(cx, self, "maxTaskQueueActivitiesPerSecond", JsNumber)
-                .map(|num| num.value(cx) as f64);
+                .map(|num| num.value(cx));
 
         let graceful_shutdown_period =
             js_optional_getter!(cx, self, "shutdownGraceTimeMs", JsNumber)
@@ -331,10 +335,13 @@ impl ObjectHandleConversionsExt for Handle<'_, JsObject> {
         match WorkerConfigBuilder::default()
             .worker_build_id(js_value_getter!(cx, self, "buildId", JsString))
             .client_identity_override(Some(js_value_getter!(cx, self, "identity", JsString)))
+            .use_worker_versioning(js_value_getter!(cx, self, "useVersioning", JsBoolean))
             .no_remote_activities(!enable_remote_activities)
             .max_outstanding_workflow_tasks(max_outstanding_workflow_tasks)
             .max_outstanding_activities(max_outstanding_activities)
             .max_outstanding_local_activities(max_outstanding_local_activities)
+            .max_concurrent_wft_polls(max_concurrent_wft_polls)
+            .max_concurrent_at_polls(max_concurrent_at_polls)
             .max_cached_workflows(max_cached_workflows)
             .sticky_queue_schedule_to_start_timeout(sticky_queue_schedule_to_start_timeout)
             .graceful_shutdown_period(graceful_shutdown_period)

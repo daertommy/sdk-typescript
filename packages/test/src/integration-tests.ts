@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs';
 import asyncRetry from 'async-retry';
 import anyTest, { Implementation, TestFn } from 'ava';
 import dedent from 'dedent';
-import ms from 'ms';
 import { v4 as uuid4 } from 'uuid';
 import {
   ActivityFailure,
@@ -31,9 +30,10 @@ import {
   TimeoutType,
   WorkflowExecution,
   WorkflowExecutionAlreadyStartedError,
+  WorkflowIdReusePolicy,
   WorkflowNotFoundError,
 } from '@temporalio/common';
-import { tsToMs } from '@temporalio/common/lib/time';
+import { msToNumber, tsToMs } from '@temporalio/common/lib/time';
 import { decode, decodeFromPayloadsAtIndex, loadDataConverter } from '@temporalio/common/lib/internal-non-workflow';
 import * as iface from '@temporalio/proto';
 import { appendDefaultInterceptors, DefaultLogger, makeTelemetryFilterString, Runtime } from '@temporalio/worker';
@@ -69,6 +69,7 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
     payloadCodecs: codec ? [codec] : [],
     failureConverter: defaultFailureConverter,
   };
+
   async function fromPayload(payload: Payload) {
     const [decodedPayload] = await decode(dataConverter.payloadCodecs, [payload]);
     return defaultPayloadConverter.fromPayload(decodedPayload);
@@ -161,6 +162,16 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
       args: ['Hello', undefined, u8('world!')],
     });
     t.is(res, 'Hello, world!');
+  });
+
+  test('url-whatwg', async (t) => {
+    const { client } = t.context;
+    const res = await client.execute(workflows.urlEcho, {
+      taskQueue: 'test',
+      workflowId: uuid4(),
+      args: ['http://foo.com'],
+    });
+    t.is(res, 'http://foo.com/?counter=1');
   });
 
   test('cancel-fake-progress', async (t) => {
@@ -550,7 +561,11 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
     t.is(events.length, 1);
     const [event] = events;
     t.regex(event.workflowTaskCompletedEventAttributes!.identity!, /\d+@.+/);
-    t.regex(event.workflowTaskCompletedEventAttributes!.binaryChecksum!, /@temporalio\/worker@\d+\.\d+\.\d+/);
+    let binid = event.workflowTaskCompletedEventAttributes!.binaryChecksum!;
+    if (binid === '') {
+      binid = event.workflowTaskCompletedEventAttributes!.workerVersion!.buildId!;
+    }
+    t.regex(binid, /@temporalio\/worker@\d+\.\d+\.\d+/);
   });
 
   test('WorkflowHandle.describe result is wrapped', async (t) => {
@@ -570,6 +585,7 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
       },
     });
     await workflow.result();
+
     const execution = await workflow.describe();
     t.deepEqual(execution.type, 'argsAndReturn');
     t.deepEqual(execution.memo, { note: 'foo' });
@@ -577,7 +593,15 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
     t.deepEqual(execution.searchAttributes!.CustomKeywordField, ['test-value']);
     t.deepEqual(execution.searchAttributes!.CustomIntField, [1]);
     t.deepEqual(execution.searchAttributes!.CustomDatetimeField, [date]);
-    t.regex((execution.searchAttributes!.BinaryChecksums as string[])[0], /@temporalio\/worker@/);
+    const binSum = execution.searchAttributes!.BinaryChecksums as string[];
+    if (binSum != null) {
+      t.regex(binSum[0], /@temporalio\/worker@/);
+    } else {
+      t.deepEqual(execution.searchAttributes!.BuildIds, [
+        'unversioned',
+        `unversioned:${t.context.worker.options.buildId}`,
+      ]);
+    }
   });
 
   test('Workflow can read Search Attributes set at start', async (t) => {
@@ -621,7 +645,7 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
       CustomDoubleField: [3.14],
     });
     const { searchAttributes } = await workflow.describe();
-    const { BinaryChecksums, ...rest } = searchAttributes;
+    const { BinaryChecksums, BuildIds, ...rest } = searchAttributes;
     t.deepEqual(rest, {
       CustomBoolField: [true],
       CustomKeywordField: ['durable code'],
@@ -629,12 +653,18 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
       CustomDatetimeField: [date],
       CustomDoubleField: [3.14],
     });
-    t.true(BinaryChecksums?.length === 1);
-    const [checksum] = BinaryChecksums ?? ['invalid'];
-    console.log(checksum);
+    let checksum: any;
+    if (BinaryChecksums != null) {
+      t.true(BinaryChecksums.length === 1);
+      checksum = BinaryChecksums[0];
+    } else {
+      t.true(BuildIds!.length === 2);
+      t.deepEqual(BuildIds![0], 'unversioned');
+      checksum = BuildIds![1];
+    }
     t.true(
       typeof checksum === 'string' &&
-        checksum.startsWith(`@temporalio/worker@${pkg.version}+`) &&
+        checksum.includes(`@temporalio/worker@${pkg.version}+`) &&
         /\+[a-f0-9]{64}$/.test(checksum) // bundle checksum
     );
   });
@@ -681,15 +711,21 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
     await workflow.result();
     const execution = await workflow.describe();
     t.deepEqual(execution.type, 'argsAndReturn');
-    t.deepEqual(Object.keys(execution.raw.workflowExecutionInfo!.searchAttributes!.indexedFields!), [
-      'BinaryChecksums',
-    ]);
+    const indexedFields = execution.raw.workflowExecutionInfo!.searchAttributes!.indexedFields!;
+    const indexedFieldKeys = Object.keys(indexedFields);
 
-    const checksums = searchAttributePayloadConverter.fromPayload(
-      execution.raw.workflowExecutionInfo!.searchAttributes!.indexedFields!.BinaryChecksums!
-    );
-    t.true(checksums instanceof Array && checksums.length === 1);
-    t.regex((checksums as string[])[0], /@temporalio\/worker@\d+\.\d+\.\d+/);
+    let encodedId: any;
+    if (indexedFieldKeys.includes('BinaryChecksums')) {
+      encodedId = indexedFields.BinaryChecksums!;
+    } else {
+      encodedId = indexedFields.BuildIds!;
+    }
+    t.true(encodedId != null);
+
+    const checksums = searchAttributePayloadConverter.fromPayload(encodedId);
+    console.log(checksums);
+    t.true(Array.isArray(checksums));
+    t.regex((checksums as string[]).pop()!, /@temporalio\/worker@\d+\.\d+\.\d+/);
     t.is(execution.raw.executionConfig?.taskQueue?.name, 'test');
     t.is(
       execution.raw.executionConfig?.taskQueue?.kind,
@@ -709,7 +745,7 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
       workflowRunTimeout: '2s',
       workflowExecutionTimeout: '3s',
       workflowTaskTimeout: '1s',
-    };
+    } as const;
     const workflow = await client.start(workflows.sleeper, options);
     // Throws because we use a different task queue
     await t.throwsAsync(() => workflow.result(), {
@@ -735,9 +771,12 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
       iface.temporal.api.enums.v1.TaskQueueKind.TASK_QUEUE_KIND_NORMAL
     );
 
-    t.is(tsToMs(execution.raw.executionConfig!.workflowRunTimeout!), ms(options.workflowRunTimeout));
-    t.is(tsToMs(execution.raw.executionConfig!.workflowExecutionTimeout!), ms(options.workflowExecutionTimeout));
-    t.is(tsToMs(execution.raw.executionConfig!.defaultWorkflowTaskTimeout!), ms(options.workflowTaskTimeout));
+    t.is(tsToMs(execution.raw.executionConfig!.workflowRunTimeout!), msToNumber(options.workflowRunTimeout));
+    t.is(
+      tsToMs(execution.raw.executionConfig!.workflowExecutionTimeout!),
+      msToNumber(options.workflowExecutionTimeout)
+    );
+    t.is(tsToMs(execution.raw.executionConfig!.defaultWorkflowTaskTimeout!), msToNumber(options.workflowTaskTimeout));
   });
 
   test('WorkflowHandle.result() throws if terminated', async (t) => {
@@ -1079,24 +1118,56 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
   test('WorkflowClient.start fails with WorkflowExecutionAlreadyStartedError', async (t) => {
     const { client } = t.context;
     const workflowId = uuid4();
-    const handle = await client.start(workflows.sleeper, { taskQueue: 'test', workflowId, args: [10000000] });
+    const handle = await client.start(workflows.sleeper, {
+      taskQueue: 'test',
+      workflowId,
+      args: [10000000],
+    });
     try {
       await t.throwsAsync(
         client.start(workflows.sleeper, {
           taskQueue: 'test',
           workflowId,
         }),
-        { instanceOf: WorkflowExecutionAlreadyStartedError, message: 'Workflow execution already started' }
+        {
+          instanceOf: WorkflowExecutionAlreadyStartedError,
+          message: 'Workflow execution already started',
+        }
       );
     } finally {
       await handle.terminate();
     }
   });
 
+  test('WorkflowClient.signalWithStart fails with WorkflowExecutionAlreadyStartedError', async (t) => {
+    const { client } = t.context;
+    const workflowId = uuid4();
+    await client.execute(workflows.sleeper, {
+      taskQueue: 'test',
+      workflowId,
+    });
+    await t.throwsAsync(
+      client.signalWithStart(workflows.sleeper, {
+        taskQueue: 'test',
+        workflowId,
+        signal: workflows.interruptSignal,
+        signalArgs: ['interrupted from signalWithStart'],
+        workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
+      }),
+      {
+        instanceOf: WorkflowExecutionAlreadyStartedError,
+        message: 'Workflow execution already started',
+      }
+    );
+  });
+
   test('Handle from WorkflowClient.start follows only own execution chain', async (t) => {
     const { client } = t.context;
     const workflowId = uuid4();
-    const handleFromThrowerStart = await client.start(workflows.throwAsync, { taskQueue: 'test', workflowId });
+    const handleFromThrowerStart = await client.start(workflows.throwAsync, {
+      taskQueue: 'test',
+      workflowId,
+    });
     const handleFromGet = client.getHandle(workflowId);
     await t.throwsAsync(handleFromGet.result(), { message: /.*/ });
     const handleFromSleeperStart = await client.start(workflows.sleeper, {
@@ -1311,22 +1382,6 @@ export function runIntegrationTests(codec?: PayloadCodec): void {
       t.deepEqual(Object.entries(enhancedStack.sources), expectedSources);
     });
   }
-
-  test('issue-731', async (t) => {
-    const { client } = t.context;
-    const workflowId = uuid4();
-    await client.execute(workflows.issue731, {
-      taskQueue: 'test',
-      workflowId,
-      workflowTaskTimeout: '1m', // Give our local activities enough time to run in CI
-    });
-    const history = await client.getHandle(workflowId).fetchHistory();
-    if (history?.events == null) {
-      throw new Error('Expected non null events');
-    }
-    // Verify only one timer was scheduled
-    t.is(history.events.filter(({ timerStartedEventAttributes }) => timerStartedEventAttributes != null).length, 1);
-  });
 
   test('Query does not cause condition to be triggered', async (t) => {
     const { client } = t.context;

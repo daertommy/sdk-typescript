@@ -12,7 +12,7 @@ import {
   TimeoutFailure,
   TimeoutType,
 } from '../failure';
-import { hasOwnProperties, isRecord } from '../type-helpers';
+import { isError } from '../type-helpers';
 import { arrayFromPayloads, fromPayloadsAtIndex, PayloadConverter, toPayloads } from './payload-converter';
 
 /**
@@ -57,8 +57,10 @@ export interface FailureConverter {
   errorToFailure(err: unknown, payloadConverter: PayloadConverter): ProtoFailure;
   /**
    * Converts a Failure proto message to a JS Error object.
+   *
+   * The returned error must be an instance of `TemporalFailure`.
    */
-  failureToError(err: ProtoFailure, payloadConverter: PayloadConverter): Error;
+  failureToError(err: ProtoFailure, payloadConverter: PayloadConverter): TemporalFailure;
 }
 
 /**
@@ -183,7 +185,7 @@ export class DefaultFailureConverter implements FailureConverter {
     );
   }
 
-  failureToError(failure: ProtoFailure, payloadConverter: PayloadConverter): Error {
+  failureToError(failure: ProtoFailure, payloadConverter: PayloadConverter): TemporalFailure {
     if (failure.encodedAttributes) {
       const attrs = payloadConverter.fromPayload<DefaultEncodedFailureAttributes>(failure.encodedAttributes);
       // Don't apply encodedAttributes unless they conform to an expected schema
@@ -280,16 +282,16 @@ export class DefaultFailureConverter implements FailureConverter {
           },
         };
       }
-      if (err instanceof TerminatedFailure) {
-        return {
-          ...base,
-          terminatedFailureInfo: {},
-        };
-      }
       if (err instanceof ServerFailure) {
         return {
           ...base,
           serverFailureInfo: { nonRetryable: err.nonRetryable },
+        };
+      }
+      if (err instanceof TerminatedFailure) {
+        return {
+          ...base,
+          terminatedFailureInfo: {},
         };
       }
       // Just a TemporalFailure
@@ -300,12 +302,12 @@ export class DefaultFailureConverter implements FailureConverter {
       source: FAILURE_SOURCE,
     };
 
-    if (isRecord(err) && hasOwnProperties(err, ['message', 'stack'])) {
+    if (isError(err)) {
       return {
         ...base,
         message: String(err.message) ?? '',
-        stackTrace: cutoffStackTrace(String(err.stack)),
-        cause: this.optionalErrorToOptionalFailure(err.cause, payloadConverter),
+        stackTrace: cutoffStackTrace(err.stack),
+        cause: this.optionalErrorToOptionalFailure((err as any).cause, payloadConverter),
       };
     }
 
@@ -333,7 +335,7 @@ export class DefaultFailureConverter implements FailureConverter {
   optionalFailureToOptionalError(
     failure: ProtoFailure | undefined | null,
     payloadConverter: PayloadConverter
-  ): Error | undefined {
+  ): TemporalFailure | undefined {
     return failure ? this.failureToError(failure, payloadConverter) : undefined;
   }
 

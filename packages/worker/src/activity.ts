@@ -1,5 +1,5 @@
 import 'abort-controller/polyfill'; // eslint-disable-line import/no-unassigned-import
-import { asyncLocalStorage, Context, Info } from '@temporalio/activity';
+import { asyncLocalStorage, CompleteAsyncError, Context, Info } from '@temporalio/activity';
 import {
   ActivityFunction,
   ApplicationFailure,
@@ -10,12 +10,14 @@ import {
 } from '@temporalio/common';
 import { encodeErrorToFailure, encodeToPayload } from '@temporalio/common/lib/internal-non-workflow';
 import { composeInterceptors } from '@temporalio/common/lib/interceptors';
+import { isAbortError } from '@temporalio/common/lib/type-helpers';
 import { coresdk } from '@temporalio/proto';
 import {
   ActivityExecuteInput,
   ActivityInboundCallsInterceptor,
   ActivityInboundCallsInterceptorFactory,
 } from './interceptors';
+import { Runtime } from './runtime';
 
 export type CancelReason =
   | keyof typeof coresdk.activity_task.ActivityCancelReason
@@ -47,7 +49,13 @@ export class Activity {
         reject(new CancelledFailure(reason));
       };
     });
-    this.context = new Context(info, promise, this.abortController.signal, this.heartbeatCallback);
+    this.context = new Context(
+      info,
+      promise,
+      this.abortController.signal,
+      this.heartbeatCallback,
+      Runtime.instance().logger
+    );
     // Prevent unhandled rejection
     promise.catch(() => undefined);
     this.interceptors = {
@@ -71,7 +79,7 @@ export class Activity {
         const result = await execute(input);
         return { completed: { result: await encodeToPayload(this.dataConverter, result) } };
       } catch (err) {
-        if (err instanceof Error && err.name === 'CompleteAsyncError') {
+        if (err instanceof CompleteAsyncError) {
           return { willCompleteAsync: {} };
         }
         if (this.cancelReason === 'HEARTBEAT_DETAILS_CONVERSION_FAILED') {
@@ -91,7 +99,7 @@ export class Activity {
             const failure = await encodeErrorToFailure(this.dataConverter, err);
             failure.stackTrace = undefined;
             return { cancelled: { failure } };
-          } else if (err instanceof Error && err.name === 'AbortError') {
+          } else if (isAbortError(err)) {
             return { cancelled: { failure: { source: FAILURE_SOURCE, canceledFailureInfo: {} } } };
           }
         }

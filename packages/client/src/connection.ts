@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import * as grpc from '@grpc/grpc-js';
 import type { RPCImpl } from 'protobufjs';
 import { filterNullAndUndefined, normalizeTlsConfig, TLSConfig } from '@temporalio/common/lib/internal-non-workflow';
-import { msOptionalToNumber } from '@temporalio/common/lib/time';
-import { isServerErrorResponse, ServiceError } from './errors';
+import { Duration, msOptionalToNumber } from '@temporalio/common/lib/time';
+import { isGrpcServiceError, ServiceError } from './errors';
 import { defaultGrpcRetryOptions, makeGrpcRetryInterceptor } from './grpc-retry';
 import pkg from './pkg';
 import { CallContext, HealthService, Metadata, OperatorService, WorkflowService } from './types';
@@ -81,7 +81,7 @@ export interface ConnectionOptions {
    * @format number of milliseconds or {@link https://www.npmjs.com/package/ms | ms-formatted string}
    * @default 10 seconds
    */
-  connectTimeout?: number | string;
+  connectTimeout?: Duration;
 }
 
 export type ConnectionOptionsWithDefaults = Required<Omit<ConnectionOptions, 'tls' | 'connectTimeout'>> & {
@@ -276,7 +276,7 @@ export class Connection {
         try {
           await this.withDeadline(deadline, () => this.workflowService.getSystemInfo({}));
         } catch (err) {
-          if (isServerErrorResponse(err)) {
+          if (isGrpcServiceError(err)) {
             // Ignore old servers
             if (err.code !== grpc.status.UNIMPLEMENTED) {
               throw new ServiceError('Failed to connect to Temporal server', { cause: err });

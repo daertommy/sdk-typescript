@@ -1,33 +1,34 @@
 import { IllegalStateError } from '@temporalio/common';
+import { isError, SymbolBasedInstanceOfError } from '@temporalio/common/lib/type-helpers';
 
 /**
  * The worker has been shut down
  */
-export class ShutdownError extends Error {
-  public readonly name = 'ShutdownError';
-}
+@SymbolBasedInstanceOfError('ShutdownError')
+export class ShutdownError extends Error {}
 
 /**
  * Thrown after shutdown was requested as a response to a poll function, JS should stop polling
  * once this error is encountered
  */
-export class TransportError extends Error {
-  public readonly name = 'TransportError';
-}
+@SymbolBasedInstanceOfError('TransportError')
+export class TransportError extends Error {}
 
 /**
  * Something unexpected happened, considered fatal
  */
-export class UnexpectedError extends Error {
-  public readonly name = 'UnexpectedError';
-}
+@SymbolBasedInstanceOfError('UnexpectedError')
+export class UnexpectedError extends Error {}
+
 export { IllegalStateError };
 
+// Check if the error's class is exactly Error (not a descendant of it), in a realm-safe way
+function isBareError(e: unknown): e is Error {
+  return isError(e) && Object.getPrototypeOf(e)?.name === 'Error';
+}
+
 export function convertFromNamedError(e: unknown, keepStackTrace: boolean): unknown {
-  // Check if the error's class is exactly Error (not a descendant of it).
-  // The instanceof check both ensure that e is indeed an object AND avoid
-  // TypeScript from complaining on accessing Error properties.
-  if (e instanceof Error && Object.getPrototypeOf(e).name === 'Error') {
+  if (isBareError(e)) {
     let newerr: Error;
     switch (e.name) {
       case 'TransportError':

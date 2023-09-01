@@ -8,9 +8,9 @@ import { Configuration, webpack } from 'webpack';
 import { DefaultLogger, Logger } from '../logger';
 import { toMB } from '../utils';
 
-export const defaultWorflowInterceptorModules = [require.resolve('../workflow-log-interceptor')];
+export const defaultWorkflowInterceptorModules = [require.resolve('../workflow-log-interceptor')];
 
-export const allowedBuiltinModules = ['assert'];
+export const allowedBuiltinModules = ['assert', 'url'];
 export const disallowedBuiltinModules = builtinModules.filter((module) => !allowedBuiltinModules.includes(module));
 export const disallowedModules = [
   ...disallowedBuiltinModules,
@@ -67,7 +67,7 @@ export class WorkflowCodeBundler {
     this.workflowsPath = workflowsPath;
     this.payloadConverterPath = payloadConverterPath;
     this.failureConverterPath = failureConverterPath;
-    this.workflowInterceptorModules = workflowInterceptorModules ?? defaultWorflowInterceptorModules;
+    this.workflowInterceptorModules = workflowInterceptorModules ?? defaultWorkflowInterceptorModules;
     this.ignoreModules = ignoreModules ?? [];
     this.webpackConfigHook = webpackConfigHook ?? ((config) => config);
   }
@@ -201,6 +201,7 @@ exports.importInterceptors = function importInterceptors() {
         // https://webpack.js.org/configuration/resolve/#resolvemodules
         modules: [path.resolve(__dirname, 'module-overrides'), 'node_modules'],
         extensions: ['.ts', '.js'],
+        extensionAlias: { '.js': ['.ts', '.js'] },
         alias: {
           __temporal_custom_payload_converter$: this.payloadConverterPath ?? false,
           __temporal_custom_failure_converter$: this.failureConverterPath ?? false,
@@ -318,7 +319,7 @@ export interface BundleOptions {
    * Modules should export an `interceptors` variable of type {@link WorkflowInterceptorsFactory}.
    *
    * By default, {@link WorkflowInboundLogInterceptor} is installed. If you wish to customize the interceptors while
-   * keeping the defaults, add {@link defaultWorflowInterceptorModules} to the provided array.
+   * keeping the defaults, add {@link defaultWorkflowInterceptorModules} to the provided array.
    */
   workflowInterceptorModules?: string[];
   /**
