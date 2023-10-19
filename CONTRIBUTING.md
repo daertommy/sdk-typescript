@@ -50,7 +50,7 @@ See [sdk-structure.md](./docs/sdk-structure.md)
 
 ### Environment setup
 
-- The TS SDK can be executed on Node 14.18+, 16 and 18. However, for SDK development, we recommend using Node 18. For easier testing, you may want to use a version manager, such as: [nvm](https://github.com/nvm-sh/nvm/blob/master/README.md) or [volta](https://volta.sh/)
+- The TS SDK can be executed on Node 14.18+, 16, 18 and 20. However, for SDK development, we recommend using Node 20. For easier testing, you may want to use a version manager, such as: [nvm](https://github.com/nvm-sh/nvm/blob/master/README.md) or [volta](https://volta.sh/)
 - To run tests, you will need access to a local Temporal server. You may use either the [Temporal CLI's integrated dev server](https://github.com/temporalio/cli#start-the-server) or a [Docker container](https://github.com/temporalio/docker-compose#temporal-server-docker-compose-files),
 - Install the [Rust toolchain](https://rustup.rs/)
 - Install [Protocal Buffers](https://github.com/protocolbuffers/protobuf/releases/)
