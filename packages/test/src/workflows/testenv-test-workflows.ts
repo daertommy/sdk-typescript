@@ -24,6 +24,7 @@ export async function raceActivityAndTimer(expectedWinner: 'timer' | 'activity')
   // TODO: there's an issue with the Java test server where if an activity does not complete
   // before its scheduling workflow, time skipping stays locked, thus potentially causing errors
   // on later tests. Work around this by making sure activity is completed before returning.
+  // See https://github.com/temporalio/sdk-java/issues/1138
   await activityPromise;
 
   return winner;
